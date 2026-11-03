@@ -7,6 +7,7 @@ export function OrderSheet({
   orderTarget, // { symbol, strikePrice, optionType, ltp, expiry, contractSymbol, delta }
   lotSize = 25,
   account = {},
+  marketStatus = {},
   onClose,
   onSubmitOrder,
 }) {
@@ -22,6 +23,8 @@ export function OrderSheet({
   const [stopLossPrice, setStopLossPrice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  const isMarketOpen = Boolean(marketStatus.isOpen || account.allowOffMarketTrading);
 
   const quantity = lots * lotSize;
   const execPrice = orderType === 'MARKET' ? orderTarget.ltp : Number(limitPrice) || orderTarget.ltp;
@@ -287,6 +290,21 @@ export function OrderSheet({
             )}
           </div>
 
+          {/* Market Closed Alert */}
+          {!isMarketOpen && (
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-extrabold text-amber-200 block">
+                  Market is Closed ({marketStatus.session || 'Post-Market'})
+                </span>
+                <p className="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                  Real exchange orders can only be placed and executed during active market hours (09:15 AM – 03:30 PM IST, Monday to Friday).
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Error Message */}
           {errorMessage && (
             <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
@@ -314,9 +332,11 @@ export function OrderSheet({
           {/* Big Action Submit Button */}
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting || !hasEnoughMargin}
+            disabled={!isMarketOpen || isSubmitting || !hasEnoughMargin}
             className={`w-full py-3.5 rounded-2xl font-extrabold text-sm uppercase tracking-wider text-white shadow-xl transition active:scale-98 flex items-center justify-center gap-2 ${
-              isBuy
+              !isMarketOpen
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none border border-slate-700/60'
+                : isBuy
                 ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30 disabled:bg-slate-800 disabled:text-slate-500'
                 : 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30 disabled:bg-slate-800 disabled:text-slate-500'
             }`}
@@ -326,6 +346,8 @@ export function OrderSheet({
                 <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Executing Trade...
               </span>
+            ) : !isMarketOpen ? (
+              <span>Market Closed • Opens 09:15 AM IST</span>
             ) : (
               <span>
                 {action} {lots} {lots === 1 ? 'Lot' : 'Lots'} ({quantity} Qty) @ {orderType === 'MARKET' ? `₹${execPrice.toFixed(2)} (MKT)` : `₹${execPrice.toFixed(2)} (LMT)`}

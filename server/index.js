@@ -38,9 +38,11 @@ function broadcast(payload) {
 
 // Hook market data updates into WebSocket broadcast
 marketData.addListener((tick) => {
+  const defaultExp = marketData.expiries[0]?.value;
   broadcast({
     type: 'MARKET_TICK',
     data: tick,
+    activeChain: marketData.optionChains['NIFTY']?.[defaultExp],
     account: tradingEngine.getAccountSummary(),
   });
 });
@@ -163,6 +165,15 @@ app.post('/api/account/reset', (req, res) => {
   res.json({ success: true, account: summary });
 });
 
+app.post('/api/settings/trading-mode', (req, res) => {
+  const summary = tradingEngine.setAllowOffMarketTrading(req.body.allowOffMarketTrading);
+  broadcast({
+    type: 'ACCOUNT_UPDATED',
+    account: summary,
+  });
+  res.json({ success: true, account: summary });
+});
+
 app.post('/api/settings/broker', (req, res) => {
   const { provider, apiKey, clientId } = req.body;
   marketData.brokerConfig = {
@@ -171,6 +182,20 @@ app.post('/api/settings/broker', (req, res) => {
     clientId: clientId || '',
   };
   res.json({ success: true, brokerConfig: marketData.brokerConfig });
+});
+
+app.post('/api/market/sync-angel', async (req, res) => {
+  await marketData.syncAngelMarketData();
+  res.json({
+    success: true,
+    marketStatus: marketData.marketStatus,
+    indices: marketData.indices,
+  });
+});
+
+app.get('/api/test-angel-quote', async (req, res) => {
+  const result = await marketData.angel.fetchIndexQuotes();
+  res.json(result);
 });
 
 app.get('/api/settings/dhan', (req, res) => {
@@ -201,6 +226,65 @@ app.post('/api/settings/dhan', async (req, res) => {
   }
 
   res.json(testRes);
+});
+
+app.get('/api/settings/angel', (req, res) => {
+  res.json({
+    isConnected: marketData.angel.isConnected,
+    apiKey: marketData.angel.apiKey || 'YzqZSKf4',
+    clientCode: marketData.angel.clientCode || '',
+    hasMpin: Boolean(marketData.angel.mpin),
+    hasTotpSecret: Boolean(marketData.angel.totpSecret),
+    lastChecked: marketData.angel.lastChecked,
+    lastFeedTime: marketData.angel.lastFeedTime,
+  });
+});
+
+app.post('/api/settings/angel/disconnect', (req, res) => {
+  marketData.angel.isConnected = false;
+  marketData.angel.jwtToken = '';
+  marketData.brokerConfig.provider = 'NSE_LIVE_SIM';
+  marketData.angel.saveSession();
+  broadcast({
+    type: 'BROKER_STATUS',
+    provider: 'NSE_LIVE_SIM',
+    isConnected: false,
+    marketStatus: marketData.checkMarketStatus(),
+  });
+  res.json({ success: true, message: 'Disconnected from Angel One' });
+});
+
+app.post('/api/settings/angel', async (req, res) => {
+  const { apiKey, clientCode, mpin, totpSecret, totp } = req.body;
+  if (!clientCode || !mpin) {
+    return res.status(400).json({ success: false, message: 'Client Code and MPIN are required' });
+  }
+
+  console.log(`Attempting Angel One login for client: ${clientCode}...`);
+
+  marketData.angel.updateCredentials({
+    apiKey: apiKey || 'YzqZSKf4',
+    clientCode,
+    mpin,
+    totpSecret,
+  });
+
+  const loginRes = await marketData.angel.login(totp);
+  console.log('Angel One login result:', loginRes.message);
+
+  if (loginRes.success) {
+    marketData.brokerConfig.provider = 'ANGEL';
+    await marketData.syncAngelMarketData();
+    broadcast({
+      type: 'BROKER_STATUS',
+      provider: 'ANGEL',
+      isConnected: true,
+      marketStatus: marketData.marketStatus,
+      indices: marketData.indices,
+    });
+  }
+
+  res.json(loginRes);
 });
 
 // WebSocket Connection

@@ -64,12 +64,15 @@ export function StrategyBuilder({
   indices = {},
   chainData,
   account = {},
+  marketStatus = {},
   onSubmitOrder,
   onNavigatePositions,
 }) {
   const [selectedStrategyId, setSelectedStrategyId] = useState('BULL_CALL_SPREAD');
   const [lots, setLots] = useState(1);
   const [isExecuting, setIsExecuting] = useState(false);
+
+  const isMarketOpen = Boolean(marketStatus.isOpen || account.allowOffMarketTrading);
 
   const idx = indices[selectedSymbol] || indices.NIFTY;
   const strikes = chainData?.strikes || [];
@@ -308,17 +311,31 @@ export function StrategyBuilder({
         })}
       </div>
 
+      {/* Market Closed Banner for Strategy */}
+      {!isMarketOpen && (
+        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Market Closed ({marketStatus.session || 'Post-Market'}). Multi-leg strategies can only be executed during live market hours.</span>
+        </div>
+      )}
+
       {/* One-click Execute Strategy Button */}
       <button
         onClick={handleExecuteAllLegs}
-        disabled={isExecuting}
-        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm uppercase tracking-wider shadow-xl shadow-blue-600/25 transition active:scale-98 flex items-center justify-center gap-2"
+        disabled={!isMarketOpen || isExecuting}
+        className={`w-full py-3.5 rounded-2xl font-extrabold text-sm uppercase tracking-wider text-white shadow-xl transition active:scale-98 flex items-center justify-center gap-2 ${
+          !isMarketOpen
+            ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60 shadow-none'
+            : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-600/25'
+        }`}
       >
         {isExecuting ? (
           <span className="flex items-center gap-2">
             <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             Executing {legs.length} Strategy Legs...
           </span>
+        ) : !isMarketOpen ? (
+          <span>Market Closed • Opens 09:15 AM IST</span>
         ) : (
           <>
             <Play className="w-4 h-4 fill-white" />

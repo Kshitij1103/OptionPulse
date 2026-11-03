@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ArrowUpRight, ArrowDownRight, Eye, Shield, Zap, RefreshCw } from 'lucide-react';
 import { formatINR, formatOI, formatStrike } from '../utils/formatters';
 
@@ -14,6 +14,40 @@ export function OptionChain({
 }) {
   const [metricView, setMetricView] = useState('ltp'); // 'ltp' | 'greeks' | 'oi'
   const [strikeRange, setStrikeRange] = useState('near'); // 'near' (13 strikes) | 'all' (41 strikes)
+  const [flashes, setFlashes] = useState({});
+  const prevPricesRef = useRef({});
+
+  useEffect(() => {
+    if (!chainData?.strikes) return;
+
+    const newFlashes = {};
+    let hasChanges = false;
+
+    for (const s of chainData.strikes) {
+      const callKey = `${s.strikePrice}_CE`;
+      const putKey = `${s.strikePrice}_PE`;
+      const prevCall = prevPricesRef.current[callKey];
+      const prevPut = prevPricesRef.current[putKey];
+
+      if (prevCall !== undefined && s.call?.ltp !== undefined && Math.abs(s.call.ltp - prevCall) >= 0.05) {
+        newFlashes[callKey] = s.call.ltp > prevCall ? 'up' : 'down';
+        hasChanges = true;
+      }
+      if (prevPut !== undefined && s.put?.ltp !== undefined && Math.abs(s.put.ltp - prevPut) >= 0.05) {
+        newFlashes[putKey] = s.put.ltp > prevPut ? 'up' : 'down';
+        hasChanges = true;
+      }
+
+      if (s.call?.ltp !== undefined) prevPricesRef.current[callKey] = s.call.ltp;
+      if (s.put?.ltp !== undefined) prevPricesRef.current[putKey] = s.put.ltp;
+    }
+
+    if (hasChanges) {
+      setFlashes(newFlashes);
+      const timer = setTimeout(() => setFlashes({}), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [chainData]);
 
   if (!chainData || !chainData.strikes || chainData.strikes.length === 0) {
     return (
@@ -131,9 +165,21 @@ export function OptionChain({
           </div>
         </div>
 
-        {/* Quick User Instruction Pill */}
-        <div className="px-2 py-1 rounded-lg bg-blue-950/40 border border-blue-500/20 text-[10px] text-blue-300 flex items-center justify-between">
-          <span>👆 <strong>Tap any strike</strong> to Buy or Sell options instantly</span>
+        {/* Quick User Instruction & Data Source Pill */}
+        <div className="px-2.5 py-1.5 rounded-xl bg-blue-950/40 border border-blue-500/20 text-[10px] text-blue-300 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-emerald-400 font-bold">
+              {chainData.source === 'ANGEL_ONE' ? 'Angel One Live Feed' : 'Live Derivatives Stream'}
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="text-slate-400 font-mono-numbers">
+              Live Ticking Active ({new Date(chainData.lastUpdated || Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })})
+            </span>
+          </div>
           <span className="text-slate-400 text-[9px] font-mono-numbers">{displayStrikes.length} strikes</span>
         </div>
       </div>
@@ -158,6 +204,9 @@ export function OptionChain({
           const isCallItm = row.strikePrice < spotPrice;
           const isPutItm = row.strikePrice > spotPrice;
 
+          const callFlash = flashes[`${row.strikePrice}_CE`];
+          const putFlash = flashes[`${row.strikePrice}_PE`];
+
           return (
             <div
               key={row.strikePrice}
@@ -178,8 +227,12 @@ export function OptionChain({
                     delta: row.call.delta,
                   })
                 }
-                className={`col-span-5 pr-2 pl-1.5 py-1.5 rounded-l-lg cursor-pointer transition active:scale-98 flex items-center justify-between border border-transparent hover:border-emerald-500/40 ${
-                  isCallItm
+                className={`col-span-5 pr-2 pl-1.5 py-1.5 rounded-l-lg cursor-pointer transition-all duration-300 active:scale-98 flex items-center justify-between border border-transparent ${
+                  callFlash === 'up'
+                    ? 'bg-emerald-500/30 ring-1 ring-emerald-400'
+                    : callFlash === 'down'
+                    ? 'bg-rose-500/30 ring-1 ring-rose-400'
+                    : isCallItm
                     ? 'bg-amber-500/10 hover:bg-amber-500/20'
                     : 'hover:bg-slate-800/60'
                 }`}
@@ -188,7 +241,9 @@ export function OptionChain({
                   <>
                     <div className="flex flex-col text-left">
                       <div className="flex items-center gap-1">
-                        <span className="font-mono-numbers text-[13px] font-bold text-slate-100">
+                        <span className={`font-mono-numbers text-[13px] font-bold transition-colors ${
+                          callFlash === 'up' ? 'text-emerald-300' : callFlash === 'down' ? 'text-rose-300' : 'text-slate-100'
+                        }`}>
                           ₹{row.call.ltp.toFixed(2)}
                         </span>
                         <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-extrabold border border-emerald-500/30">
@@ -218,7 +273,9 @@ export function OptionChain({
                       <span className="text-slate-400 text-[10px]">θ {row.call.theta}</span>
                     </div>
                     <div className="flex flex-col items-end font-mono-numbers text-[11px]">
-                      <span className="text-emerald-400 font-bold">₹{row.call.ltp.toFixed(1)}</span>
+                      <span className={`font-bold transition-colors ${
+                        callFlash === 'up' ? 'text-emerald-300' : callFlash === 'down' ? 'text-rose-300' : 'text-emerald-400'
+                      }`}>₹{row.call.ltp.toFixed(1)}</span>
                       <span className="text-amber-400 text-[10px]">IV {row.call.iv}%</span>
                     </div>
                   </>
@@ -238,7 +295,9 @@ export function OptionChain({
                       </span>
                     </div>
                     <div className="flex flex-col items-end font-mono-numbers text-[11px]">
-                      <span className="text-slate-100 font-bold">₹{row.call.ltp.toFixed(1)}</span>
+                      <span className={`font-bold transition-colors ${
+                        callFlash === 'up' ? 'text-emerald-300' : callFlash === 'down' ? 'text-rose-300' : 'text-slate-100'
+                      }`}>₹{row.call.ltp.toFixed(1)}</span>
                       <span className="text-slate-400 text-[9px]">Vol {formatOI(row.call.volume)}</span>
                     </div>
                   </>
@@ -274,8 +333,12 @@ export function OptionChain({
                     delta: row.put.delta,
                   })
                 }
-                className={`col-span-5 pl-2 pr-1.5 py-1.5 rounded-r-lg cursor-pointer transition active:scale-98 flex items-center justify-between border border-transparent hover:border-rose-500/40 ${
-                  isPutItm
+                className={`col-span-5 pl-2 pr-1.5 py-1.5 rounded-r-lg cursor-pointer transition-all duration-300 active:scale-98 flex items-center justify-between border border-transparent ${
+                  putFlash === 'up'
+                    ? 'bg-emerald-500/30 ring-1 ring-emerald-400'
+                    : putFlash === 'down'
+                    ? 'bg-rose-500/30 ring-1 ring-rose-400'
+                    : isPutItm
                     ? 'bg-amber-500/10 hover:bg-amber-500/20'
                     : 'hover:bg-slate-800/60'
                 }`}
@@ -291,7 +354,9 @@ export function OptionChain({
                         <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-400 font-extrabold border border-rose-500/30">
                           BUY
                         </span>
-                        <span className="font-mono-numbers text-[13px] font-bold text-slate-100">
+                        <span className={`font-mono-numbers text-[13px] font-bold transition-colors ${
+                          putFlash === 'up' ? 'text-emerald-300' : putFlash === 'down' ? 'text-rose-300' : 'text-slate-100'
+                        }`}>
                           ₹{row.put.ltp.toFixed(2)}
                         </span>
                       </div>

@@ -1,13 +1,27 @@
 // Frontend API & WebSocket Client for Virtual Trading
 
 function getApiBase() {
-  // If running on Vite dev port 5173, allow fallback to direct port 3000 if proxy fails
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('optionpulse_server_url');
+    if (saved) return saved.replace(/\/$/, '');
+
+    // Check if running inside Capacitor Android APK (protocol is capacitor: or localhost without port 3000)
+    const isCapacitor =
+      window.location.protocol === 'capacitor:' ||
+      (window.location.hostname === 'localhost' && (!window.location.port || window.location.port === '80'));
+
+    if (isCapacitor) {
+      return 'http://192.168.1.6:3000';
+    }
+  }
   return '';
 }
 
 async function requestWithFallback(endpoint, options = {}) {
+  const base = getApiBase();
+  const url = base ? `${base}${endpoint}` : endpoint;
   try {
-    const res = await fetch(endpoint, options);
+    const res = await fetch(url, options);
     if (res.ok) return res;
     // If 404 or 500 and we are on port 5173, try direct port 3000
     if (window.location.port === '5173') {
@@ -17,7 +31,7 @@ async function requestWithFallback(endpoint, options = {}) {
     }
     return res;
   } catch (err) {
-    if (window.location.port === '5173') {
+    if (!base && window.location.port === '5173') {
       const fallbackUrl = `http://${window.location.hostname}:3000${endpoint}`;
       return fetch(fallbackUrl, options);
     }
@@ -106,6 +120,15 @@ export const api = {
     }
   },
 
+  async setTradingMode(allowOffMarketTrading) {
+    const res = await requestWithFallback('/api/settings/trading-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allowOffMarketTrading }),
+    });
+    return res.json();
+  },
+
   async saveBrokerSettings(settings) {
     const res = await requestWithFallback('/api/settings/broker', {
       method: 'POST',
@@ -133,13 +156,53 @@ export const api = {
     });
     return res.json();
   },
+
+  async getAngelStatus() {
+    try {
+      const res = await requestWithFallback('/api/settings/angel');
+      if (!res.ok) return { isConnected: false, apiKey: 'YzqZSKf4' };
+      return res.json();
+    } catch {
+      return { isConnected: false, apiKey: 'YzqZSKf4' };
+    }
+  },
+
+  async connectAngel(credentials) {
+    const res = await requestWithFallback('/api/settings/angel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+    });
+    return res.json();
+  },
+
+  async disconnectAngel() {
+    const res = await requestWithFallback('/api/settings/angel/disconnect', {
+      method: 'POST',
+    });
+    return res.json();
+  },
+
+  async syncAngelQuotes() {
+    const res = await requestWithFallback('/api/market/sync-angel', {
+      method: 'POST',
+    });
+    return res.json();
+  },
 };
 
 export function connectWebSocket(onMessage, onError) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // If Vite dev port 5173, connect directly to backend ws on port 3000
-  const port = window.location.port === '5173' ? '3000' : (window.location.port || '80');
-  const wsUrl = `${protocol}//${window.location.hostname}:${port}/ws`;
+  const base = getApiBase();
+  let wsUrl = '';
+  if (base.startsWith('http://')) {
+    wsUrl = base.replace('http://', 'ws://') + '/ws';
+  } else if (base.startsWith('https://')) {
+    wsUrl = base.replace('https://', 'wss://') + '/ws';
+  } else {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const port = window.location.port === '5173' ? '3000' : (window.location.port || '3000');
+    wsUrl = `${protocol}//${window.location.hostname}:${port}/ws`;
+  }
   let ws = null;
   let retryTimer = null;
 

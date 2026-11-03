@@ -4,6 +4,7 @@ import { formatINR } from '../utils/formatters';
 
 export function Positions({
   account = {},
+  marketStatus = {},
   onSquareOffPosition,
   onSquareOffAll,
   onNavigateOptionChain,
@@ -11,6 +12,7 @@ export function Positions({
   const [confirmSquareOffAll, setConfirmSquareOffAll] = useState(false);
   const [squaringId, setSquaringId] = useState(null);
 
+  const isMarketOpen = Boolean(marketStatus.isOpen || account.allowOffMarketTrading);
   const positions = account.positions || [];
   const unrealizedPnL = account.unrealizedPnL || 0;
   const realizedPnL = account.realizedPnL || 0;
@@ -18,6 +20,10 @@ export function Positions({
   const isNetProfit = totalPnL >= 0;
 
   const handleSquareOffSingle = async (posId) => {
+    if (!isMarketOpen) {
+      alert(`Cannot exit positions while exchange is closed (${marketStatus.session || 'Post-Market'}). Orders and square-offs can only occur during market hours (09:15 AM – 03:30 PM IST).`);
+      return;
+    }
     setSquaringId(posId);
     try {
       await onSquareOffPosition(posId);
@@ -29,6 +35,10 @@ export function Positions({
   };
 
   const handleSquareOffAll = async () => {
+    if (!isMarketOpen) {
+      alert(`Cannot exit positions while exchange is closed (${marketStatus.session || 'Post-Market'}). Orders and square-offs can only occur during market hours (09:15 AM – 03:30 PM IST).`);
+      return;
+    }
     try {
       await onSquareOffAll();
       setConfirmSquareOffAll(false);

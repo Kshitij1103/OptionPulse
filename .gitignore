@@ -3,3 +3,5 @@ dist
 .DS_Store
 .env
 server/store.json
+
+server/angel_session.json

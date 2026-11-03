@@ -41,6 +41,7 @@ export class TradingEngine {
       positions: [], // Active open positions
       orders: [],    // Order history & open limit orders
       trades: [],    // Executed trade log
+      allowOffMarketTrading: false, // Strict: Orders only during live market hours (9:15 AM - 3:30 PM IST)
       stats: {
         totalTrades: 0,
         winningTrades: 0,
@@ -120,6 +121,13 @@ export class TradingEngine {
   }
 
   placeOrder(orderReq) {
+    const marketStatus = this.marketData.checkMarketStatus();
+    if (!marketStatus.isOpen && !this.account.allowOffMarketTrading) {
+      throw new Error(
+        `Orders can only be placed and executed during market hours (09:15 AM - 03:30 PM IST, Monday - Friday). Market is currently in ${marketStatus.session}.`
+      );
+    }
+
     const {
       symbol,
       strikePrice,
@@ -323,7 +331,14 @@ export class TradingEngine {
     this.recalculateAccount();
   }
 
-  squareOffPosition(positionId) {
+  squareOffPosition(positionId, forceAllowOffMarket = false) {
+    const marketStatus = this.marketData.checkMarketStatus();
+    if (!marketStatus.isOpen && !this.account.allowOffMarketTrading && !forceAllowOffMarket) {
+      throw new Error(
+        `Positions can only be squared off during market hours (09:15 AM - 03:30 PM IST). Market is currently in ${marketStatus.session}.`
+      );
+    }
+
     const posIndex = this.account.positions.findIndex((p) => p.id === positionId);
     if (posIndex === -1) throw new Error('Position not found');
 
@@ -405,11 +420,18 @@ export class TradingEngine {
     };
   }
 
-  squareOffAll() {
+  squareOffAll(forceAllowOffMarket = false) {
+    const marketStatus = this.marketData.checkMarketStatus();
+    if (!marketStatus.isOpen && !this.account.allowOffMarketTrading && !forceAllowOffMarket) {
+      throw new Error(
+        `Positions can only be squared off during market hours (09:15 AM - 03:30 PM IST). Market is currently in ${marketStatus.session}.`
+      );
+    }
+
     const count = this.account.positions.length;
     while (this.account.positions.length > 0) {
       const pos = this.account.positions[0];
-      this.squareOffPosition(pos.id);
+      this.squareOffPosition(pos.id, true);
     }
     return {
       success: true,
@@ -417,6 +439,12 @@ export class TradingEngine {
       message: `Squared off all ${count} positions`,
       account: this.getAccountSummary(),
     };
+  }
+
+  setAllowOffMarketTrading(allow) {
+    this.account.allowOffMarketTrading = Boolean(allow);
+    this.saveState();
+    return this.getAccountSummary();
   }
 
   cancelOrder(orderId) {
@@ -430,29 +458,33 @@ export class TradingEngine {
   }
 
   onMarketTick() {
+    const marketStatus = this.marketData.checkMarketStatus();
+    const canExecute = marketStatus.isOpen || this.account.allowOffMarketTrading;
     let stateChanged = false;
 
-    // 1. Check open limit orders
-    for (const order of this.account.orders) {
-      if (order.status === 'OPEN' && order.orderType === 'LIMIT') {
-        const contract = this.marketData.getOptionContract(
-          order.symbol,
-          order.strikePrice,
-          order.optionType,
-          order.expiry
-        );
-        if (!contract) continue;
+    // 1. Check open limit orders (ONLY execute during live market hours)
+    if (canExecute) {
+      for (const order of this.account.orders) {
+        if (order.status === 'OPEN' && order.orderType === 'LIMIT') {
+          const contract = this.marketData.getOptionContract(
+            order.symbol,
+            order.strikePrice,
+            order.optionType,
+            order.expiry
+          );
+          if (!contract) continue;
 
-        let shouldExecute = false;
-        if (order.action === 'BUY' && contract.ltp <= order.limitPrice) {
-          shouldExecute = true;
-        } else if (order.action === 'SELL' && contract.ltp >= order.limitPrice) {
-          shouldExecute = true;
-        }
+          let shouldExecute = false;
+          if (order.action === 'BUY' && contract.ltp <= order.limitPrice) {
+            shouldExecute = true;
+          } else if (order.action === 'SELL' && contract.ltp >= order.limitPrice) {
+            shouldExecute = true;
+          }
 
-        if (shouldExecute) {
-          this.executeOrder(order, order.limitPrice);
-          stateChanged = true;
+          if (shouldExecute) {
+            this.executeOrder(order, order.limitPrice);
+            stateChanged = true;
+          }
         }
       }
     }
@@ -479,24 +511,28 @@ export class TradingEngine {
       pos.pnlPercent = Number((((pos.ltp - pos.avgPrice) / pos.avgPrice) * 100 * (pos.action === 'BUY' ? 1 : -1)).toFixed(2));
       totalUnrealized += pos.pnl;
 
-      // Check Target or Stop-Loss
-      if (pos.targetPrice && pos.action === 'BUY' && pos.ltp >= pos.targetPrice) {
-        positionsToSquareOff.push({ pos, reason: 'Target Reached (Profit)' });
-      } else if (pos.stopLossPrice && pos.action === 'BUY' && pos.ltp <= pos.stopLossPrice) {
-        positionsToSquareOff.push({ pos, reason: 'Stop Loss Hit' });
-      } else if (pos.targetPrice && pos.action === 'SELL' && pos.ltp <= pos.targetPrice) {
-        positionsToSquareOff.push({ pos, reason: 'Target Reached (Profit)' });
-      } else if (pos.stopLossPrice && pos.action === 'SELL' && pos.ltp >= pos.stopLossPrice) {
-        positionsToSquareOff.push({ pos, reason: 'Stop Loss Hit' });
+      // Check Target or Stop-Loss triggers
+      if (canExecute) {
+        if (pos.targetPrice && pos.action === 'BUY' && pos.ltp >= pos.targetPrice) {
+          positionsToSquareOff.push({ pos, reason: 'Target Reached (Profit)' });
+        } else if (pos.stopLossPrice && pos.action === 'BUY' && pos.ltp <= pos.stopLossPrice) {
+          positionsToSquareOff.push({ pos, reason: 'Stop Loss Hit' });
+        } else if (pos.targetPrice && pos.action === 'SELL' && pos.ltp <= pos.targetPrice) {
+          positionsToSquareOff.push({ pos, reason: 'Target Reached (Profit)' });
+        } else if (pos.stopLossPrice && pos.action === 'SELL' && pos.ltp >= pos.stopLossPrice) {
+          positionsToSquareOff.push({ pos, reason: 'Stop Loss Hit' });
+        }
       }
     }
 
-    for (const { pos } of positionsToSquareOff) {
-      try {
-        this.squareOffPosition(pos.id);
-        stateChanged = true;
-      } catch (err) {
-        console.error('Auto SL/TP error:', err);
+    if (canExecute && positionsToSquareOff.length > 0) {
+      for (const { pos } of positionsToSquareOff) {
+        try {
+          this.squareOffPosition(pos.id, true);
+          stateChanged = true;
+        } catch (err) {
+          console.error('Auto SL/TP error:', err);
+        }
       }
     }
 
@@ -540,6 +576,7 @@ export class TradingEngine {
 
     return {
       ...this.account,
+      allowOffMarketTrading: Boolean(this.account.allowOffMarketTrading),
       netDelta: Number(netDelta.toFixed(2)),
       netTheta: Number(netTheta.toFixed(2)),
       totalPortfolioValue: Number((this.account.cashBalance + this.account.unrealizedPnL).toFixed(2)),

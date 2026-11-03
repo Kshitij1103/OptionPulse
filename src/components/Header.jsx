@@ -23,12 +23,34 @@ export function Header({
       <div className="px-3 py-1.5 flex items-center justify-between text-[11px] font-medium border-b border-slate-800/40 text-slate-400">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700/60">
-            <span className={`inline-block w-2 h-2 rounded-full ${marketStatus.provider === 'DHAN' ? 'bg-amber-400 animate-pulse' : (marketStatus.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')}`} />
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                marketStatus.provider === 'ANGEL' || marketStatus.isAngelLive
+                  ? 'bg-emerald-400 animate-pulse'
+                  : marketStatus.provider === 'DHAN'
+                  ? 'bg-amber-400 animate-pulse'
+                  : marketStatus.isOpen
+                  ? 'bg-emerald-500 animate-pulse'
+                  : 'bg-slate-400'
+              }`}
+            />
             <span className="font-semibold text-slate-200">
-              {marketStatus.provider === 'DHAN' ? 'DHAN LIVE' : (marketStatus.isOpen ? 'NSE LIVE' : 'REPLAY 24/7')}
+              {marketStatus.provider === 'ANGEL' || marketStatus.isAngelLive
+                ? 'ANGEL ONE LIVE'
+                : marketStatus.provider === 'DHAN'
+                ? 'DHAN LIVE'
+                : marketStatus.isOpen
+                ? 'NSE LIVE'
+                : 'REPLAY 24/7'}
             </span>
             <span className="text-slate-500">•</span>
-            <span className="text-[10px] text-slate-400">{marketStatus.provider === 'DHAN' ? 'Direct Feed' : (marketStatus.session || 'Regular')}</span>
+            <span className="text-[10px] text-slate-400">
+              {marketStatus.provider === 'ANGEL' || marketStatus.isAngelLive
+                ? (marketStatus.isOpen ? 'NSE/BSE Direct' : 'Official Close')
+                : marketStatus.provider === 'DHAN'
+                ? 'Direct Feed'
+                : (marketStatus.session || 'Regular')}
+            </span>
           </div>
 
           <div className="hidden sm:flex items-center gap-1 text-slate-400">

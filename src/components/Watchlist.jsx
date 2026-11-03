@@ -62,47 +62,63 @@ export function Watchlist({
           </button>
         </div>
 
-        {/* Mini Chart */}
-        <div className="h-32 w-full pt-2">
-          {historyData.length > 2 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={historyData}>
-                <defs>
-                  <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <YAxis domain={['auto', 'auto']} hide />
-                <XAxis dataKey="time" hide />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      return (
-                        <div className="bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg text-xs font-mono-numbers">
-                          <span className="text-slate-400 mr-2">{payload[0].payload.time}</span>
-                          <span className="font-bold text-white">₹{payload[0].value}</span>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="price"
-                  stroke={isUp ? '#10b981' : '#f43f5e'}
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#chartGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-              Streaming real-time chart points...
+        {/* Mini Chart Header & Waveform */}
+        <div className="pt-2">
+          <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-emerald-400 font-bold uppercase tracking-wider">Live Intraday Chart</span>
             </div>
-          )}
+            <span className="font-mono-numbers text-[10px] text-slate-400">
+              {historyData.length > 0 ? `Tick: ${historyData[historyData.length - 1].time}` : 'Ticking...'}
+            </span>
+          </div>
+
+          <div className="h-36 w-full">
+            {historyData.length > 1 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={historyData} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity={0.35} />
+                      <stop offset="95%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
+                  <XAxis dataKey="time" hide />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="bg-slate-900/95 border border-slate-700 px-2.5 py-1.5 rounded-xl shadow-xl text-xs font-mono-numbers">
+                            <span className="text-slate-400 mr-2">{payload[0].payload.time}</span>
+                            <span className="font-bold text-white">₹{Number(payload[0].value).toFixed(2)}</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="price"
+                    stroke={isUp ? '#10b981' : '#f43f5e'}
+                    strokeWidth={2.5}
+                    isAnimationActive={false}
+                    fillOpacity={1}
+                    fill="url(#chartGradient)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                Streaming real-time chart points...
+              </div>
+            )}
+          </div>
         </div>
 
         {/* OHLC Stats Grid */}

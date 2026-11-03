@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { OptionChain } from './components/OptionChain';
@@ -41,6 +41,11 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMobileFrame, setIsMobileFrame] = useState(window.innerWidth > 768);
 
+  const selectedSymbolRef = useRef(selectedSymbol);
+  const selectedExpiryRef = useRef(selectedExpiry);
+  selectedSymbolRef.current = selectedSymbol;
+  selectedExpiryRef.current = selectedExpiry;
+
   const refreshOptionChain = useCallback(async (sym = selectedSymbol, exp = selectedExpiry) => {
     try {
       const chain = await api.getOptionChain(sym, exp);
@@ -81,9 +86,15 @@ export default function App() {
     loadInitialData();
   }, []);
 
-  // Fetch Option Chain when symbol or expiry changes
+  // Fetch Option Chain when symbol or expiry changes + auto-poll live prices every 2s
   useEffect(() => {
     refreshOptionChain(selectedSymbol, selectedExpiry);
+
+    const timer = setInterval(() => {
+      refreshOptionChain(selectedSymbol, selectedExpiry);
+    }, 2000);
+
+    return () => clearInterval(timer);
   }, [selectedSymbol, selectedExpiry, refreshOptionChain]);
 
   // Real-time WebSocket connection
@@ -106,7 +117,10 @@ export default function App() {
           setAccount(msg.account);
         }
 
-        if (msg.initialChain && !chainData) {
+        // Live stream active option chain directly over WebSocket
+        if (msg.activeChain && msg.activeChain.symbol === selectedSymbolRef.current) {
+          setChainData(msg.activeChain);
+        } else if (msg.initialChain && !chainData) {
           setChainData(msg.initialChain);
         }
       } else if (
@@ -122,7 +136,7 @@ export default function App() {
     });
 
     return disconnect;
-  }, [chainData]);
+  }, []);
 
   // Handle Placing Order
   const handlePlaceOrder = async (orderData) => {
@@ -224,6 +238,7 @@ export default function App() {
         {activeTab === 'positions' && (
           <Positions
             account={account}
+            marketStatus={marketStatus}
             onSquareOffPosition={handleSquareOffPosition}
             onSquareOffAll={handleSquareOffAll}
             onNavigateOptionChain={() => setActiveTab('optionChain')}
@@ -243,6 +258,7 @@ export default function App() {
             indices={indices}
             chainData={chainData}
             account={account}
+            marketStatus={marketStatus}
             onSubmitOrder={handlePlaceOrder}
             onNavigatePositions={() => setActiveTab('positions')}
           />
@@ -255,6 +271,7 @@ export default function App() {
           orderTarget={orderTarget}
           lotSize={currentLotSize}
           account={account}
+          marketStatus={marketStatus}
           onClose={() => setOrderTarget(null)}
           onSubmitOrder={handlePlaceOrder}
         />
